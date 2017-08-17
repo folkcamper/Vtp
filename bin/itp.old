@@ -1,0 +1,102 @@
+#! /Skel/bin/perl
+
+use Getopt::Std;
+use X11::XWinInfo;
+use X11::ScreenRes;
+
+use strict;
+
+my %OPTS;
+getopts( 'p:i:r:h', \%OPTS );    # filename prefix, windowid, resolution, help
+
+my $X = X11::XWinInfo->new();
+
+&dohelp if ( defined $OPTS{'h'} );
+&dohelp unless ( length( $OPTS{'i'} ) || length( $OPTS{'r'} ) );
+
+my $prefix;
+$prefix = $OPTS{'p'} if defined $OPTS{'p'};
+$prefix = 'image' unless $prefix =~ /\w+/;
+$prefix =~ s/\.$//g;
+$prefix .= '.';
+
+# names of resolutions are always uppercase
+
+$OPTS{'r'} =~ tr/a-z/A-Z/ if ( length( $OPTS{'r'} ) );
+
+### PDT integration. The user may specify a resolution, and if so,
+### the respective project directory is used.
+
+my ( $writepath, $pathfound ) = &pickwritepath;
+
+# the filename is a combination of the writepath, prefix, the time, and the extension
+
+my $isotime = `isotime`;
+chomp $isotime;
+my $extension = '.png';
+my $fn        = $writepath . '/' . $prefix . $isotime . $extension;
+
+### GEOMETRY
+
+my $windowid;
+my $geometry;
+
+$windowid = $OPTS{'i'} if defined $OPTS{'i'};
+
+if ($pathfound) {    #
+   my $S = X11::ScreenRes->new();
+
+   my $width  = $S->{ $OPTS{'r'} }->[ 0 ];
+   my $height = $S->{ $OPTS{'r'} }->[ 1 ];
+
+   my $X = X11::XWinInfo->new();
+   $geometry = $X->anchorgeom( $width, $height );
+
+} elsif ( length($windowid) ) {    #
+   my $X = X11::XWinInfo->new($windowid);
+   $geometry = $X->xwingeom();
+} else {
+   &dohelp;
+}
+
+### COMMAND
+
+my $vidcommand = "ffmpeg -f x11grab $geometry -vframes 1 $fn";
+print "\n$vidcommand\n";
+
+sub pickwritepath {                #
+
+   if ( defined $OPTS{'r'} ) {
+
+      my $r = $OPTS{'r'};
+      my $S = X11::ScreenRes->new();
+
+      unless ( exists $S->{$r} ) {
+
+         # warn( Dumper( \$S ) );
+         warn("screenres $OPTS{'r'} not found in X11::ScreenRes");
+         return ( $ENV{'HOME'}, 0 );
+      }
+
+      $writepath = $ENV{'PDT_ROOT'} . '/' . $ENV{'PDT_ACTIVE'} . '/' . "Still" . '/' . $r;
+
+      unless ( -d $writepath ) {
+         warn("pdtpath $writepath not found.");
+         return ( $ENV{'HOME'}, 0 );
+
+      }
+
+      return ( $writepath, 1 );
+
+   }
+
+   return $ENV{'HOME'};
+}
+
+sub dohelp {
+
+   print "-i <windowid> -p <video_filename_prefix> -r <resolution_name>\n\n";
+   exit;
+
+}
+
